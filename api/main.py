@@ -16,6 +16,33 @@ from api.services.downloader import DownloadError, MediaTooLargeError
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def is_valid_youtube_url(url: str) -> bool:
+    import re
+    from urllib.parse import urlparse
+    
+    if re.match(r'^[a-zA-Z0-9_-]{11}$', url):
+        return True
+        
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+            
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+            
+        hostname = hostname.lower()
+        if hostname in ('youtube.com', 'youtu.be'):
+            return True
+        if hostname.endswith('.youtube.com') or hostname.endswith('.youtu.be'):
+            return True
+            
+        return False
+    except Exception:
+        return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -58,9 +85,7 @@ async def download_media(
     if not url:
         raise HTTPException(status_code=400, detail="Missing URL parameter.")
         
-    # Basic validation for YouTube URL or ID to prevent command injection / unexpected behavior
-    import re
-    if not re.match(r'^[a-zA-Z0-9_-]{11}$', url) and not url.startswith(('http://', 'https://')):
+    if not is_valid_youtube_url(url):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL or Video ID.")
 
     try:
