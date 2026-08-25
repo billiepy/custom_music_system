@@ -11,22 +11,46 @@ class TelegramCache:
         self.is_connected = False
         
         # Determine if we should attempt connection based on token presence
-        if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CACHE_CHANNEL_ID:
+        self.can_connect = bool(settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CACHE_CHANNEL_ID)
+
+    async def connect(self):
+        if not self.can_connect:
+            return
+        if not self.app:
             self.app = Client(
                 "cache_bot",
                 api_id=settings.TELEGRAM_API_ID,
                 api_hash=settings.TELEGRAM_API_HASH,
                 bot_token=settings.TELEGRAM_BOT_TOKEN,
-                in_memory=True
+                workdir=os.path.dirname(__file__)
             )
-
-    async def connect(self):
-        if not self.app:
-            return
         try:
             await self.app.start()
             self.is_connected = True
             logger.info("Telegram Cache Bot connected.")
+            
+            # Ensure the channel is resolved in Pyrogram's cache
+            channel_id_str = settings.TELEGRAM_CACHE_CHANNEL_ID
+            try:
+                channel_id = int(channel_id_str)
+                await self.app.get_chat(channel_id)
+            except ValueError as e:
+                if "Peer id invalid" in str(e):
+                    logger.info("PeerIdInvalid encountered. Attempting HTTP API workaround...")
+                    import httpx
+                    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getChat"
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.post(url, json={"chat_id": channel_id})
+                        data = resp.json()
+                        if data.get("ok"):
+                            username = data["result"].get("username")
+                            if username:
+                                await self.app.get_chat(username)
+                                logger.info(f"Resolved channel via username @{username}")
+                            else:
+                                logger.error("Channel is private and has no username. Cannot resolve via HTTP API workaround.")
+                        else:
+                            logger.error(f"HTTP API getChat failed: {data}")
         except Exception as e:
             logger.error(f"Telegram connection error: {e}")
 
@@ -46,19 +70,28 @@ class TelegramCache:
         try:
             channel_id = int(settings.TELEGRAM_CACHE_CHANNEL_ID)
             
+            import asyncio
+            UPLOAD_TIMEOUT = 30
+            
             if media_type == "audio":
-                msg = await self.app.send_audio(
+                upload_coro = self.app.send_audio(
                     chat_id=channel_id,
                     audio=file_path,
                     caption=caption
                 )
-                file_id = msg.audio.file_id if msg.audio else None
             else:
-                msg = await self.app.send_video(
+                upload_coro = self.app.send_video(
                     chat_id=channel_id,
                     video=file_path,
                     caption=caption
                 )
+                
+            upload_task = asyncio.create_task(upload_coro)
+            msg = await asyncio.wait_for(asyncio.shield(upload_task), timeout=UPLOAD_TIMEOUT)
+            
+            if media_type == "audio":
+                file_id = msg.audio.file_id if msg.audio else None
+            else:
                 file_id = msg.video.file_id if msg.video else None
 
             if msg and file_id:
@@ -67,6 +100,9 @@ class TelegramCache:
                     "telegram_message_id": msg.id,
                     "telegram_file_id": file_id
                 }
+            return None
+        except asyncio.TimeoutError:
+            logger.error(f"Telegram upload timed out after {UPLOAD_TIMEOUT} seconds")
             return None
         except Exception as e:
             logger.error(f"Telegram upload error: {e}")

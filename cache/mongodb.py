@@ -33,7 +33,7 @@ class MongoCache:
             logger.info("MongoDB disconnected.")
 
     async def find_cached_media(self, youtube_id: str, media_type: str) -> dict | None:
-        if not self.collection:
+        if self.collection is None:
             return None
         try:
             return await self.collection.find_one({"youtube_id": youtube_id, "media_type": media_type})
@@ -42,7 +42,7 @@ class MongoCache:
             return None
 
     async def save_cached_media(self, data: dict) -> bool:
-        if not self.collection:
+        if self.collection is None:
             return False
         try:
             now = datetime.now(timezone.utc)
@@ -61,7 +61,7 @@ class MongoCache:
             return False
 
     async def update_cache_usage(self, youtube_id: str, media_type: str) -> bool:
-        if not self.collection:
+        if self.collection is None:
             return False
         try:
             await self.collection.update_one(

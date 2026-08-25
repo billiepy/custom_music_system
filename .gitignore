@@ -5,3 +5,6 @@ __pycache__/
 cache/
 temp_downloads/
 .pytest_cache/
+*.session
+*.log
+api/cookies/cookies.txt

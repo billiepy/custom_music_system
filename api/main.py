@@ -43,7 +43,11 @@ async def download_media(
     background_tasks: BackgroundTasks,
     url: str = Query(..., description="YouTube Video ID or URL"),
     type: str = Query(..., description="audio or video"),
-    api_key: str = Depends(verify_api_key)
+    api_key: str = Depends(verify_api_key),
+    tg_group_title: str = Query(None, description="Telegram group title"),
+    tg_group_id: str = Query(None, description="Telegram group ID"),
+    tg_user_name: str = Query(None, description="Telegram user display name"),
+    tg_user_id: str = Query(None, description="Telegram user ID")
 ):
     if type not in ["audio", "video"]:
         raise HTTPException(status_code=400, detail="Invalid media type. Must be 'audio' or 'video'.")
@@ -63,7 +67,14 @@ async def download_media(
             # If we couldn't parse a valid 11-char ID, just use a sanitized version for the lock
             youtube_id = "".join(c for c in youtube_id if c.isalnum() or c in "_-")[:20]
             
-        filepath = await cache_manager.process_request(youtube_id, type, url)
+        tg_context = {
+            "group_title": tg_group_title or "Unknown Group",
+            "group_id": tg_group_id or "Unknown",
+            "user_name": tg_user_name or "Unknown User",
+            "user_id": tg_user_id or "Unknown"
+        }
+            
+        filepath = await cache_manager.process_request(youtube_id, type, url, tg_context)
         
         # Determine media type for response
         media_type = "audio/mpeg" if type == "audio" else "video/mp4"

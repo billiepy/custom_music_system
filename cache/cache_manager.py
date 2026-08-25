@@ -27,11 +27,19 @@ class CacheManager:
                 # but we could implement a cleanup strategy later if memory is a concern.
                 pass
 
-    async def process_request(self, youtube_id: str, media_type: str, url: str) -> str:
+    async def process_request(self, youtube_id: str, media_type: str, url: str, tg_context: dict = None) -> str:
         """
         Main entry point for media requests.
         Returns the absolute filepath to the requested media (downloaded or cached).
         """
+        if tg_context is None:
+            tg_context = {
+                "group_title": "Unknown Group",
+                "group_id": "Unknown",
+                "user_name": "Unknown User",
+                "user_id": "Unknown"
+            }
+            
         lock_key = f"{youtube_id}_{media_type}"
         lock = await self.get_lock(lock_key)
         
@@ -66,10 +74,24 @@ class CacheManager:
             logger.info(f"CACHE MISS: {youtube_id} ({media_type})")
             
             # Download from YouTube
-            filepath = await download_media_from_youtube(url, media_type)
+            filepath, metadata = await download_media_from_youtube(url, media_type)
+            
+            # Construct formatted caption
+            import datetime
+            timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+            
+            caption = (
+                f"Title: {metadata.get('title', 'Unknown')}\n"
+                f"Quality: {metadata.get('quality', 'Unknown')}\n"
+                f"Source: YouTube\n"
+                f"ID: {youtube_id}\n"
+                f"Type: {media_type}\n"
+                f"Group: {tg_context['group_title']} ({tg_context['group_id']})\n"
+                f"Requested by: {tg_context['user_name']} ({tg_context['user_id']})\n"
+                f"Timestamp: {timestamp}"
+            )
             
             # Upload to Telegram cache channel
-            caption = f"Source: YouTube\nID: {youtube_id}\nType: {media_type}"
             tg_data = await telegram_cache.upload_media(filepath, media_type, caption)
             
             # Save to MongoDB if upload was successful
@@ -77,7 +99,7 @@ class CacheManager:
                 cache_record = {
                     "youtube_id": youtube_id,
                     "media_type": media_type,
-                    "title": youtube_id, # Can be improved by parsing title from yt-dlp
+                    "title": metadata.get("title", youtube_id),
                     **tg_data
                 }
                 await mongo_cache.save_cached_media(cache_record)

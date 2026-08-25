@@ -1,5 +1,9 @@
 import os
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+# Load environment variables from .env file
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 class Settings(BaseSettings):
     API_KEYS: str = os.getenv("API_KEY", os.getenv("API_KEYS", "YOUR_SECURE_API_KEY_HERE"))

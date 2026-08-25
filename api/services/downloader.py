@@ -56,12 +56,19 @@ async def download_media_from_youtube(url: str, media_type: str) -> str:
                 info = ydl.extract_info(url, download=False)
                 
                 # Check duration/size roughly
-                # Avoid downloading massive files
                 duration = info.get('duration')
                 if duration and duration > settings.DOWNLOAD_TIMEOUT:
                      raise MediaTooLargeError(f"Media is too long: {duration} seconds.")
                 
                 ydl.download([url])
+                
+                # Extract metadata
+                title = info.get('title', 'Unknown Title')
+                if media_type == 'audio':
+                    quality = '192kbps'  # Since we force it
+                else:
+                    quality = info.get('format_note', 'Unknown Quality')
+                return {"title": title, "quality": quality}
         except yt_dlp.utils.DownloadError as e:
             raise DownloadError(f"Failed to download: {str(e)}")
         except Exception as e:
@@ -69,7 +76,7 @@ async def download_media_from_youtube(url: str, media_type: str) -> str:
             
     # Run in thread pool
     try:
-        await asyncio.to_thread(_download)
+        metadata = await asyncio.to_thread(_download)
     except Exception as e:
         # Cleanup any partial files with this file_id
         import glob
@@ -91,4 +98,4 @@ async def download_media_from_youtube(url: str, media_type: str) -> str:
         os.remove(expected_file)
         raise MediaTooLargeError(f"File size {file_size_mb:.2f}MB exceeds limit of {settings.MAX_FILE_SIZE_MB}MB.")
         
-    return expected_file
+    return expected_file, metadata
