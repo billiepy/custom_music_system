@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Billiepy
+# Licensed under the MIT License.
+# This file is part of SiloHelper
 from fastapi import Security, HTTPException, status
 from fastapi.security import APIKeyQuery
 from config.settings import settings

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Billiepy
+# Licensed under the MIT License.
+# This file is part of SiloHelper
 import os
 import asyncio
 import logging

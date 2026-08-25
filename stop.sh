@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) 2026 Billiepy
+# Licensed under the MIT License.
+# This file is part of SiloHelper
 set -e
 
 echo "Stopping custom_music_system API..."
