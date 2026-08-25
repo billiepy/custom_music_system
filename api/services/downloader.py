@@ -50,10 +50,46 @@ async def download_media_from_youtube(url: str, media_type: str) -> str:
         ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
         final_ext = "mp4"
 
-    if settings.YT_COOKIES_FILE and os.path.exists(settings.YT_COOKIES_FILE):
-        ydl_opts['cookiefile'] = settings.YT_COOKIES_FILE
-        
     def _download():
+        import urllib.request
+        import tempfile
+        
+        cookie_file_path = None
+        temp_cookie_path = None
+        
+        # Determine cookies
+        cookies_urls = [u for u in settings.COOKIES_URL.split(" ") if u]
+        local_fallback = settings.local_cookies_file
+        
+        for u in cookies_urls:
+            try:
+                req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    content = response.read()
+                    
+                fd, temp_path = tempfile.mkstemp(suffix=".txt", text=True)
+                os.write(fd, content)
+                os.close(fd)
+                temp_cookie_path = temp_path
+                cookie_file_path = temp_path
+                break
+            except Exception as e:
+                logger.warning(f"Failed to fetch remote cookies from URL, trying next: {e}")
+                if temp_cookie_path and os.path.exists(temp_cookie_path):
+                    try:
+                        os.remove(temp_cookie_path)
+                    except Exception:
+                        pass
+                    temp_cookie_path = None
+                continue
+                
+        if not cookie_file_path:
+            if os.path.exists(local_fallback):
+                cookie_file_path = local_fallback
+                
+        if cookie_file_path:
+            ydl_opts['cookiefile'] = cookie_file_path
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -76,6 +112,12 @@ async def download_media_from_youtube(url: str, media_type: str) -> str:
             raise DownloadError(f"Failed to download: {str(e)}")
         except Exception as e:
             raise DownloadError(f"Unexpected error during download: {str(e)}")
+        finally:
+            if temp_cookie_path and os.path.exists(temp_cookie_path):
+                try:
+                    os.remove(temp_cookie_path)
+                except Exception:
+                    pass
             
     # Run in thread pool
     try:
