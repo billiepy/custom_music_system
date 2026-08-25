@@ -6,8 +6,20 @@ from pydantic_settings import BaseSettings
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 class Settings(BaseSettings):
+    _project_root: str = os.path.dirname(os.path.dirname(__file__))
+    
     API_KEYS: str = os.getenv("API_KEY", os.getenv("API_KEYS", "YOUR_SECURE_API_KEY_HERE"))
-    YT_COOKIES_FILE: str = os.getenv("YT_COOKIES_FILE", "")
+    
+    @property
+    def YT_COOKIES_FILE(self) -> str:
+        # Default to cookies.txt if not provided in .env
+        env_cookie = os.getenv("YT_COOKIES_FILE", "cookies.txt")
+        # Prevent pointing outside the project by only taking the basename
+        cookie_filename = os.path.basename(env_cookie)
+        if not cookie_filename:
+            cookie_filename = "cookies.txt"
+        return os.path.join(self._project_root, "api", "cookies", cookie_filename)
+        
     MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
     DOWNLOAD_TIMEOUT: int = int(os.getenv("DOWNLOAD_TIMEOUT", "300"))
     TEMP_DIR: str = os.getenv("TEMP_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp_downloads"))
