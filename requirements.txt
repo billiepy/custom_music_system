@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+yt-dlp
+pydantic
+pydantic-settings
+python-dotenv
+pytest
+pytest-asyncio
+httpx
+pytest-mock
+motor
+pyrogram
+tgcrypto
