@@ -2,12 +2,14 @@
 # Licensed under the MIT License.
 # This file is part of SiloHelper
 import os
+import re
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, Depends, BackgroundTasks
 from fastapi.responses import FileResponse
-from api.security.auth import verify_api_key
+from api.security.auth import verify_api_key, failed_attempts, banned_ips, FAILED_ATTEMPT_WINDOW_SECONDS
 from cache.mongodb import mongo_cache
 from cache.telegram_cache import telegram_cache
 from cache.cache_manager import cache_manager
@@ -43,13 +45,39 @@ def is_valid_youtube_url(url: str) -> bool:
         return False
 
 
+async def cleanup_bans():
+    while True:
+        try:
+            await asyncio.sleep(300)
+            now = time.time()
+            
+            expired_bans = [ip for ip, expiry in banned_ips.items() if now > expiry]
+            for ip in expired_bans:
+                del banned_ips[ip]
+                
+            empty_ips = []
+            for ip, attempts in failed_attempts.items():
+                valid = [ts for ts in attempts if now - ts < FAILED_ATTEMPT_WINDOW_SECONDS]
+                if not valid:
+                    empty_ips.append(ip)
+                else:
+                    failed_attempts[ip] = valid
+            for ip in empty_ips:
+                del failed_attempts[ip]
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in ban cleanup task: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    cleanup_task = asyncio.create_task(cleanup_bans())
     await mongo_cache.connect()
     await telegram_cache.connect()
     yield
     # Shutdown
+    cleanup_task.cancel()
     await mongo_cache.disconnect()
     await telegram_cache.disconnect()
 
@@ -102,14 +130,21 @@ async def download_media(
             "user_id": tg_user_id or "Unknown"
         }
             
-        filepath = await cache_manager.process_request(youtube_id, type, url, tg_context)
+        filepath, response_sent_event = await cache_manager.process_request(youtube_id, type, url, tg_context)
         
         # Determine media type for response
         media_type = "audio/mpeg" if type == "audio" else "video/mp4"
         filename = os.path.basename(filepath)
         
-        # Add cleanup task to run after the response is sent
-        background_tasks.add_task(cleanup_file, filepath)
+        if response_sent_event is not None:
+            # Cache MISS: the background caching task (Telegram upload + Mongo
+            # save) owns file cleanup once it's done with the file. Signal it
+            # that the response has been fully sent, so it knows it's safe to
+            # delete the file without racing this FileResponse's own read.
+            background_tasks.add_task(response_sent_event.set)
+        else:
+            # Cache HIT: same behavior as before, clean up right after sending.
+            background_tasks.add_task(cleanup_file, filepath)
         
         return FileResponse(
             path=filepath, 

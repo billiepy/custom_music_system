@@ -66,7 +66,7 @@ class TelegramCache:
             except Exception as e:
                 logger.error(f"Telegram disconnection error: {e}")
 
-    async def upload_media(self, file_path: str, media_type: str, caption: str = "") -> dict | None:
+    async def upload_media(self, file_path: str, media_type: str, caption: str = "", title: str = None) -> dict | None:
         if not self.is_connected or not self.app:
             return None
             
@@ -74,19 +74,30 @@ class TelegramCache:
             channel_id = int(settings.TELEGRAM_CACHE_CHANNEL_ID)
             
             import asyncio
+            import re as _re
             UPLOAD_TIMEOUT = 30
-            
+
+            safe_title = None
+            if title:
+                # Strip characters that are invalid/awkward in filenames, keep it readable.
+                safe_title = _re.sub(r'[\\/:*?"<>|]+', '', title).strip()[:150] or None
+
             if media_type == "audio":
+                file_name = f"{safe_title}.mp3" if safe_title else None
                 upload_coro = self.app.send_audio(
                     chat_id=channel_id,
                     audio=file_path,
-                    caption=caption
+                    caption=caption,
+                    title=safe_title,
+                    file_name=file_name
                 )
             else:
+                file_name = f"{safe_title}.mp4" if safe_title else None
                 upload_coro = self.app.send_video(
                     chat_id=channel_id,
                     video=file_path,
-                    caption=caption
+                    caption=caption,
+                    file_name=file_name
                 )
                 
             upload_task = asyncio.create_task(upload_coro)

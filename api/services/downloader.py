@@ -36,6 +36,7 @@ async def download_media_from_youtube(url: str, media_type: str) -> str:
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
+        'remote_components': ['ejs:github'],
     }
 
     if media_type == "audio":
@@ -99,7 +100,10 @@ async def download_media_from_youtube(url: str, media_type: str) -> str:
                 if duration and duration > settings.DOWNLOAD_TIMEOUT:
                      raise MediaTooLargeError(f"Media is too long: {duration} seconds.")
                 
-                ydl.download([url])
+                # Reuse the already-extracted info instead of calling ydl.download()
+                # separately -- download() would re-run the full extraction
+                # (including the Deno JS-challenge solve) a second time from scratch.
+                ydl.process_ie_result(info, download=True)
                 
                 # Extract metadata
                 title = info.get('title', 'Unknown Title')
